@@ -4,6 +4,7 @@ import sys
 from datetime import datetime, timedelta, UTC
 import signal
 import os
+import time
 def run(cmd, cwd=None, time_cmd=False):
     if time_cmd:
         start = time.time()
@@ -74,7 +75,11 @@ while (year, month) <= (today.year, today.month):
         print(f"[{bottom_level}] Processing {year:04d}-{month:02d}-01 {sha}")
         run(f"git checkout {sha}", cwd=repo_path)
         short_sha = sha[:5]
-        _, output = run(f"betteralign -repo {bottom_level}-{year:04d}-{month:02d}-01-{sha[:5]} ./...", cwd=repo_path, time_cmd=True)
+        command = f"betteralign -repo {bottom_level}-{year:04d}-{month:02d}-01-{sha[:5]} ./..."
+        print(command)
+        _, output = run(command, cwd=repo_path, time_cmd=True)
+        print(output)
+        print(_)
         if not "analysis skipped" in output:
             with open(f"results/{bottom_level}-{year:04d}-{month:02d}-01-{sha[:5]}", "w") as f:
                 f.write(output)
