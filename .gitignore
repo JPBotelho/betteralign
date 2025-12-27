@@ -35,8 +35,6 @@ cmake-build-debug/
 credentials.json
 token.json
 
-### Shell wrappers ###
-*.sh
 
 ## Usual macOS cruft ###
 .DS_Store
