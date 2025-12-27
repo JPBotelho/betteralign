@@ -4,12 +4,23 @@ import sys
 from datetime import datetime, timedelta, UTC
 import signal
 import os
-def run(cmd, cwd=None):
+def run(cmd, cwd=None, time_cmd=False):
+    if time_cmd:
+        start = time.time()
+
     result = subprocess.run(
-        cmd, shell=True, text=True, cwd=cwd,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        cmd,
+        shell=True,
+        text=True,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
     )
-    # You can inspect result.returncode if needed
+
+    if time_cmd:
+        elapsed = time.time() - start
+        print(f"Completed in {elapsed:.2f} seconds: {cmd}")
+
     return result.stdout.strip(), result.stderr.strip()
 def get_current_branch(repo_path=None):
     """Return the current branch name."""
@@ -60,10 +71,10 @@ while (year, month) <= (today.year, today.month):
     date_str = f"{year:04d}-{month:02d}-01 00:01"
     sha = git_latest_commit_before(date_str, branch, repo_path)
     if sha:
-        print(f"Processing {year:04d}-{month:02d}-01 {sha}")
+        print(f"[{bottom_level}] Processing {year:04d}-{month:02d}-01 {sha}")
         run(f"git checkout {sha}", cwd=repo_path)
         short_sha = sha[:5]
-        _, output = run(f"time betteralign -repo {bottom_level}-{year:04d}-{month:02d}-01-{sha[:5]} ./...", cwd=repo_path)
+        _, output = run(f"betteralign -repo {bottom_level}-{year:04d}-{month:02d}-01-{sha[:5]} ./...", cwd=repo_path, time_cmd=True)
         if not "analysis skipped" in output:
             with open(f"results/{bottom_level}-{year:04d}-{month:02d}-01-{sha[:5]}", "w") as f:
                 f.write(output)
@@ -73,12 +84,12 @@ while (year, month) <= (today.year, today.month):
 
 # Latest commit
 latest_sha = run(f"git rev-parse HEAD", cwd=repo_path)
-print(f"Processing {today.year:04d}-{today.month:02d}-{today.day:02d} {latest_sha}")
-_, output = run(f"time betteralign -repo {today.year:04d}-{today.month:02d}-{today.day:02d}-{latest_sha[:5]} ./...", cwd=repo_path)
-        if not "analysis skipped" in output:
-            with open(f"results/{bottom_level}-{year:04d}-{month:02d}-01-{sha[:5]}", "w") as f:
-                f.write(output)
-        run(f"git checkout {branch}", cwd=repo_path)
+print(f"[{bottom_level}] Processing {today.year:04d}-{today.month:02d}-{today.day:02d} {latest_sha}")
+_, output = run(f"betteralign -repo {today.year:04d}-{today.month:02d}-{today.day:02d}-{latest_sha[:5]} ./...", cwd=repo_path, time_cmd=True)
+if not "analysis skipped" in output:
+    with open(f"results/{bottom_level}-{year:04d}-{month:02d}-01-{sha[:5]}", "w") as f:
+        f.write(output)
+run(f"git checkout {branch}", cwd=repo_path)
 #run(f"git checkout {latest_sha}", cwd=repo_path)
 #run(f"betteralign ./... > {today.year:04d}-{today.month:02d}-{today.day:02d}-{latest_sha[:5]}.txt 2>&1", cwd=repo_path)
 #run(f"git checkout {branch}", cwd=repo_path)
