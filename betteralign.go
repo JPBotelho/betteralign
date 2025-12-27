@@ -100,6 +100,8 @@ var (
 	fExcludeFiles   StringArrayFlag
 	fExcludeDirs    StringArrayFlag
 	repoIdentifier  SuperCoolString
+	runDate         SuperCoolString
+	commitSHA       SuperCoolString
 
 	// default test and generated suffixes
 	testSuffixes      = []string{"_test.go"}
@@ -113,7 +115,8 @@ var (
 )
 
 type SuperCoolString string
-func (f *SuperCoolString) Set(value string) error{
+
+func (f *SuperCoolString) Set(value string) error {
 	*f = SuperCoolString(value)
 	return nil
 }
@@ -148,6 +151,8 @@ func InitAnalyzer(analyzer *analysis.Analyzer) {
 	analyzer.Flags.Var(&fExcludeFiles, "exclude_files", "exclude files matching a pattern")
 	analyzer.Flags.Var(&fExcludeDirs, "exclude_dirs", "exclude directories matching a pattern")
 	analyzer.Flags.Var(&repoIdentifier, "repo", "Which repo is this running in?")
+	analyzer.Flags.Var(&runDate, "date", "What's the date?")
+	analyzer.Flags.Var(&commitSHA, "commit", "What's the commit SHA?")
 }
 
 func init() {
@@ -279,37 +284,55 @@ func run(pass *analysis.Pass) (any, error) {
 
 var unsafePointerTyp = types.Unsafe.Scope().Lookup("Pointer").(*types.TypeName).Type()
 
-
 var sizeClasses = []int64{
-    8, 16, 24, 32, 48, 64, 80, 96, 112, 128,
-    144, 160, 176, 192, 208, 224, 240, 256, 288, 320,
-    352, 384, 416, 448, 480, 512, 576, 640, 704, 768,
-    896, 1024, 1152, 1280, 1408, 1536, 1792, 2048, 2304, 2688,
-    3072, 3200, 3456, 4096, 4864, 5376, 6144, 6528, 6784, 6912,
-    8192, 9472, 9728, 10240, 10880, 12288, 13568, 14336, 16384, 18432,
-    19072, 20480, 21760, 24576, 27264, 28672, 32768,
+	8, 16, 24, 32, 48, 64, 80, 96, 112, 128,
+	144, 160, 176, 192, 208, 224, 240, 256, 288, 320,
+	352, 384, 416, 448, 480, 512, 576, 640, 704, 768,
+	896, 1024, 1152, 1280, 1408, 1536, 1792, 2048, 2304, 2688,
+	3072, 3200, 3456, 4096, 4864, 5376, 6144, 6528, 6784, 6912,
+	8192, 9472, 9728, 10240, 10880, 12288, 13568, 14336, 16384, 18432,
+	19072, 20480, 21760, 24576, 27264, 28672, 32768,
 }
 
 func SizeClass(size int64) int64 {
-    for _, s := range sizeClasses {
-        if s >= size {
-            return s
-        }
-    }
-    return size // if larger than all classes, return the original size
+	for _, s := range sizeClasses {
+		if s >= size {
+			return s
+		}
+	}
+	return size // if larger than all classes, return the original size
 }
 
 type Result struct {
-	Bytes int64 `json:bytes`
-	OptimalBytes int64 `json:bytes`
-	CacheLines int64 `json:cacheLines`
-	OptimalCacheLines int64 `json:optimalCacheLines`
-	PointerBytes int64 `json:pointerBytes`
-	OptimalPointerBytes int64 `json:optimalPointerBytes`
-	AllocationSize int64 `json:allocationSize`
-	OptimalAllocationSize int64 `json:optimalAllocationSize`
-	NumberOfFields int `json:numberOfFields`
-	PackageName string `json:packageName`
+	Bytes                 int64  `json:bytes`
+	OptimalBytes          int64  `json:bytes`
+	CacheLines            int64  `json:cacheLines`
+	OptimalCacheLines     int64  `json:optimalCacheLines`
+	PointerBytes          int64  `json:pointerBytes`
+	OptimalPointerBytes   int64  `json:optimalPointerBytes`
+	AllocationSize        int64  `json:allocationSize`
+	OptimalAllocationSize int64  `json:optimalAllocationSize`
+	NumberOfFields        int    `json:numberOfFields`
+	PackageName           string `json:packageName`
+	Date                  string `json:Date`
+	CommitSHA             string `json:CommitSHA`
+	HasManualPadding      bool   `json:HasManualPadding`
+}
+
+func hasManualPadding(s *ast.StructType) bool {
+	for _, field := range s.Fields.List {
+		if len(field.Names) == 1 && field.Names[0].Name == "_" {
+			// Check if type is []byte
+			arrType, ok := field.Type.(*ast.ArrayType)
+			if ok {
+				ident, ok := arrType.Elt.(*ast.Ident)
+				if ok && ident.Name == "byte" {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func betteralign(pass *analysis.Pass, aNode *ast.StructType, typ *types.Struct, dec *decorator.Decorator,
@@ -323,21 +346,24 @@ func betteralign(pass *analysis.Pass, aNode *ast.StructType, typ *types.Struct, 
 	optsz, optptrs := s.Sizeof(optimal), s.ptrdata(optimal)
 
 	size := s.Sizeof(typ)
-	
+
 	nCacheLines := 1 + ((size - 1) / 64)
 	optimalCacheLines := 1 + ((optsz - 1) / 64)
 
 	res := Result{
-		Bytes: size,
-		OptimalBytes: optsz,
-		CacheLines: nCacheLines,
-		OptimalCacheLines: optimalCacheLines,
-		PointerBytes: s.ptrdata(typ),
-		OptimalPointerBytes: optptrs,		
-		AllocationSize: SizeClass(size),
+		Bytes:                 size,
+		OptimalBytes:          optsz,
+		CacheLines:            nCacheLines,
+		OptimalCacheLines:     optimalCacheLines,
+		PointerBytes:          s.ptrdata(typ),
+		OptimalPointerBytes:   optptrs,
+		AllocationSize:        SizeClass(size),
 		OptimalAllocationSize: SizeClass(optsz),
-		NumberOfFields: len(aNode.Fields.List),
-		PackageName: repoIdentifier.String(),
+		NumberOfFields:        len(aNode.Fields.List),
+		PackageName:           repoIdentifier.String(),
+		Date:                  runDate.String(),
+		CommitSHA:             commitSHA.String(),
+		HasManualPadding:      hasManualPadding(aNode),
 	}
 
 	if res.Bytes == 0 && res.PointerBytes == 0 {
@@ -346,7 +372,7 @@ func betteralign(pass *analysis.Pass, aNode *ast.StructType, typ *types.Struct, 
 
 	jsonBytes, _ := json.Marshal(res)
 	jsonString := string(jsonBytes)
-	
+
 	pass.Report(analysis.Diagnostic{
 		Pos:            aNode.Pos(),
 		End:            aNode.Pos(),
