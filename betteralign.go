@@ -30,7 +30,7 @@
 package betteralign
 
 import (
-	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"go/ast"
@@ -163,7 +163,6 @@ func run(pass *analysis.Pass) (any, error) {
 	applyFixesFset := make(map[string][]byte)
 	testFset := make(map[string]bool)
 	generatedFset := make(map[string]bool)
-
 	inspect.Preorder(nodeFilter, func(node ast.Node) {
 		fn := pass.Fset.File(node.Pos()).Name()
 
@@ -268,6 +267,38 @@ func run(pass *analysis.Pass) (any, error) {
 
 var unsafePointerTyp = types.Unsafe.Scope().Lookup("Pointer").(*types.TypeName).Type()
 
+
+var sizeClasses = []int64{
+    8, 16, 24, 32, 48, 64, 80, 96, 112, 128,
+    144, 160, 176, 192, 208, 224, 240, 256, 288, 320,
+    352, 384, 416, 448, 480, 512, 576, 640, 704, 768,
+    896, 1024, 1152, 1280, 1408, 1536, 1792, 2048, 2304, 2688,
+    3072, 3200, 3456, 4096, 4864, 5376, 6144, 6528, 6784, 6912,
+    8192, 9472, 9728, 10240, 10880, 12288, 13568, 14336, 16384, 18432,
+    19072, 20480, 21760, 24576, 27264, 28672, 32768,
+}
+
+func SizeClass(size int64) int64 {
+    for _, s := range sizeClasses {
+        if s >= size {
+            return s
+        }
+    }
+    return size // if larger than all classes, return the original size
+}
+
+type Result struct {
+	Bytes int64 `json:bytes`
+	OptimalBytes int64 `json:bytes`
+	CacheLines int64 `json:cacheLines`
+	OptimalCacheLines int64 `json:optimalCacheLines`
+	PointerBytes int64 `json:pointerBytes`
+	OptimalPointerBytes int64 `json:optimalPointerBytes`
+	AllocationSize int64 `json:allocationSize`
+	OptimalAllocationSize int64 `json:optimalAllocationSize`
+	NumberOfFields int `json:numberOfFields`
+}
+
 func betteralign(pass *analysis.Pass, aNode *ast.StructType, typ *types.Struct, dec *decorator.Decorator,
 	dFile *dst.File, fixOps map[string][]byte, fn string,
 ) {
@@ -275,67 +306,40 @@ func betteralign(pass *analysis.Pass, aNode *ast.StructType, typ *types.Struct, 
 	maxAlign := pass.TypesSizes.Alignof(unsafePointerTyp)
 
 	s := gcSizes{wordSize, maxAlign}
-	optimal, indexes := optimalOrder(typ, &s)
+	optimal, _ := optimalOrder(typ, &s)
 	optsz, optptrs := s.Sizeof(optimal), s.ptrdata(optimal)
 
-	var message string
-	if sz := s.Sizeof(typ); sz != optsz {
-		message = fmt.Sprintf("%d bytes saved: struct of size %d could be %d", sz-optsz, sz, optsz)
-	} else if ptrs := s.ptrdata(typ); ptrs != optptrs {
-		message = fmt.Sprintf("%d bytes saved: struct with %d pointer bytes could be %d", ptrs-optptrs, ptrs, optptrs)
-	} else {
-		// Already optimal order.
+	size := s.Sizeof(typ)
+	
+	nCacheLines := 1 + ((size - 1) / 64)
+	optimalCacheLines := 1 + ((optsz - 1) / 64)
+
+	res := Result{
+		Bytes: size,
+		OptimalBytes: optsz,
+		CacheLines: nCacheLines,
+		OptimalCacheLines: optimalCacheLines,
+		PointerBytes: s.ptrdata(typ),
+		OptimalPointerBytes: optptrs,		
+		AllocationSize: SizeClass(size),
+		OptimalAllocationSize: SizeClass(optsz),
+		NumberOfFields: len(aNode.Fields.List),
+	}
+
+	if res.Bytes == 0 && res.PointerBytes == 0 {
 		return
 	}
 
-	dNode := dec.Dst.Nodes[aNode].(*dst.StructType)
-
-	// Skip if explicitly ignored with magic comment substring.
-	if hasIgnoreComment(dNode.Fields) {
-		return
-	}
-
-	// Flatten the ast node since it could have multiple field names per list item while
-	// *types.Struct only have one item per field.
-	// TODO: Preserve multi-named fields instead of flattening.
-	flat := make([]*dst.Field, 0, len(indexes))
-	dummy := &dst.Field{}
-	for _, f := range dNode.Fields.List {
-		flat = append(flat, f)
-		if len(f.Names) == 0 {
-			continue
-		}
-
-		for range f.Names[1:] {
-			flat = append(flat, dummy)
-		}
-	}
-
-	// Sort fields according to the optimal order.
-	reordered := make([]*dst.Field, 0, len(indexes))
-	for _, index := range indexes {
-		f := flat[index]
-		if f == dummy {
-			continue
-		}
-		reordered = append(reordered, f)
-	}
-
-	dNode.Fields.List = reordered
-
-	var buf bytes.Buffer
-	if err := decorator.Fprint(&buf, dFile); err != nil {
-		return
-	}
-
+	jsonBytes, _ := json.Marshal(res)
+	jsonString := string(jsonBytes)
+	
 	pass.Report(analysis.Diagnostic{
 		Pos:            aNode.Pos(),
-		End:            aNode.Pos() + token.Pos(len("struct")),
-		Message:        message,
+		End:            aNode.Pos(),
+		Message:        jsonString,
 		SuggestedFixes: nil,
 	})
-
-	fixOps[fn] = buf.Bytes()
+	return
 }
 
 func optimalOrder(str *types.Struct, sizes *gcSizes) (*types.Struct, []int) {
