@@ -314,8 +314,6 @@ type Result struct {
 	OptimalAllocationSize int64  `json:optimalAllocationSize`
 	NumberOfFields        int    `json:numberOfFields`
 	PackageName           string `json:packageName`
-	Date                  string `json:Date`
-	CommitSHA             string `json:CommitSHA`
 	HasManualPadding      bool   `json:HasManualPadding`
 }
 
@@ -361,8 +359,6 @@ func betteralign(pass *analysis.Pass, aNode *ast.StructType, typ *types.Struct, 
 		OptimalAllocationSize: SizeClass(optsz),
 		NumberOfFields:        len(aNode.Fields.List),
 		PackageName:           repoIdentifier.String(),
-		Date:                  runDate.String(),
-		CommitSHA:             commitSHA.String(),
 		HasManualPadding:      hasManualPadding(aNode),
 	}
 
