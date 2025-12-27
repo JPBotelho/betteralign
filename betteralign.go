@@ -99,6 +99,7 @@ var (
 	fOptInMode      bool
 	fExcludeFiles   StringArrayFlag
 	fExcludeDirs    StringArrayFlag
+	repoIdentifier  SuperCoolString
 
 	// default test and generated suffixes
 	testSuffixes      = []string{"_test.go"}
@@ -110,6 +111,16 @@ var (
 	ErrWriteFile      = errors.New("unable to write to file")
 	ErrPreFilterFiles = errors.New("failed to pre-filter files")
 )
+
+type SuperCoolString string
+func (f *SuperCoolString) Set(value string) error{
+	*f = SuperCoolString(value)
+	return nil
+}
+
+func (f *SuperCoolString) String() string {
+	return string(*f)
+}
 
 type StringArrayFlag []string
 
@@ -136,6 +147,7 @@ func InitAnalyzer(analyzer *analysis.Analyzer) {
 	analyzer.Flags.BoolVar(&fOptInMode, "opt_in", false, fmt.Sprintf("opt-in mode on per-struct basis with '%s' in comment", optInStruct))
 	analyzer.Flags.Var(&fExcludeFiles, "exclude_files", "exclude files matching a pattern")
 	analyzer.Flags.Var(&fExcludeDirs, "exclude_dirs", "exclude directories matching a pattern")
+	analyzer.Flags.Var(&repoIdentifier, "repo", "Which repo is this running in?")
 }
 
 func init() {
@@ -297,6 +309,7 @@ type Result struct {
 	AllocationSize int64 `json:allocationSize`
 	OptimalAllocationSize int64 `json:optimalAllocationSize`
 	NumberOfFields int `json:numberOfFields`
+	PackageName string `json:packageName`
 }
 
 func betteralign(pass *analysis.Pass, aNode *ast.StructType, typ *types.Struct, dec *decorator.Decorator,
@@ -324,6 +337,7 @@ func betteralign(pass *analysis.Pass, aNode *ast.StructType, typ *types.Struct, 
 		AllocationSize: SizeClass(size),
 		OptimalAllocationSize: SizeClass(optsz),
 		NumberOfFields: len(aNode.Fields.List),
+		PackageName: repoIdentifier.String(),
 	}
 
 	if res.Bytes == 0 && res.PointerBytes == 0 {
