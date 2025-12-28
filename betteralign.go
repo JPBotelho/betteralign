@@ -315,6 +315,7 @@ type Result struct {
 	NumberOfFields        int    `json:numberOfFields`
 	PackageName           string `json:packageName`
 	HasManualPadding      bool   `json:HasManualPadding`
+	CommitSHA             string `json:CommitSHA`
 }
 
 func hasManualPadding(s *ast.StructType) bool {
@@ -360,6 +361,7 @@ func betteralign(pass *analysis.Pass, aNode *ast.StructType, typ *types.Struct, 
 		NumberOfFields:        len(aNode.Fields.List),
 		PackageName:           repoIdentifier.String(),
 		HasManualPadding:      hasManualPadding(aNode),
+		CommitSHA:             commitSHA.String(),
 	}
 
 	if res.Bytes == 0 && res.PointerBytes == 0 {

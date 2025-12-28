@@ -1,1 +1,4 @@
-❯ find ~/projects/cncfstructs/ -mindepth 1 -maxdepth 1 -type d | while read dir; do     python3 script.py "$dir"; done
+cat repos.txt | while read -r url; do
+    repo_name=$(basename "$url")
+    ./script.sh "$url" > "${repo_name}_report.txt" 2>&1
+done

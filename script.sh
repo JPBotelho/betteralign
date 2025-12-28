@@ -22,9 +22,13 @@ trap cleanup EXIT
 # Clone repo quietly into temporary directory
 git clone "$URL" "$TMPDIR/$REPO_NAME" >/dev/null 2>&1
 
-# Run betteralign inside the temporary directory and fix paths
+# Run betteralign inside the temporary directory and fix paths, then apply sed
 (
+  go clean -cache
   cd "$TMPDIR/$REPO_NAME"
-  betteralign -repo "$REPO_NAME" ./... 2>&1 \
-    | sed "s|^$TMPDIR||"
+  COMMIT_SHA=$(git rev-parse HEAD)
+  betteralign -repo "$REPO_NAME" -commit "$COMMIT_SHA" ./... 2>&1 \
+    | sed "s|^$TMPDIR||" \
+    | sed -E 's#^([^[:space:]]+):[[:space:]]+\{#{"location":"\1",#' \
+    | grep -E '^\{.*\}$'
 )
